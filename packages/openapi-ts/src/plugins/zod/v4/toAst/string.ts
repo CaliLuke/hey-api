@@ -24,6 +24,8 @@ function formatNode(ctx: StringResolverContext): ChainResult {
   const { z } = plugin.imports;
 
   switch (schema.format) {
+    case 'binary':
+      return $(z).attr(identifiers.instanceof).call($.id('Blob'));
     case 'date':
       return $(z).attr(identifiers.iso).attr(identifiers.date).call();
     case 'date-time': {
@@ -94,6 +96,10 @@ function stringResolver(ctx: StringResolverContext): Chain {
 
   const formatNode = ctx.nodes.format(ctx);
   if (formatNode) ctx.chain.current = formatNode;
+
+  // Binary formats validate browser values rather than strings, so OpenAPI
+  // string constraints cannot be chained onto the resulting Zod schema.
+  if (ctx.schema.format === 'binary') return ctx.chain.current;
 
   const lengthNode = ctx.nodes.length(ctx);
   if (lengthNode) {
