@@ -11,5 +11,8 @@ components:
             anyOf:
               - type: string
                 format: binary
+                minLength: 1
+                maxLength: 10
+                pattern: '^[a-z]+$'
               - type: string
           type: array

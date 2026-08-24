@@ -1,6 +1,20 @@
 import type { Auth } from '../../client-core/bundle/auth';
 import type { Client } from '../bundle/types';
-import { buildUrl, getParseAs, setAuthParams } from '../bundle/utils';
+import { buildUrl, getParseAs, mergeHeaders, setAuthParams } from '../bundle/utils';
+
+describe('mergeHeaders', () => {
+  it('does not use the detached-realm-sensitive Headers.forEach callback', () => {
+    const headers = new Headers({ foo: 'bar' });
+    const forEach = vi.spyOn(headers, 'forEach').mockImplementation(() => {
+      throw new TypeError('The provided callback is no longer runnable');
+    });
+
+    const merged = mergeHeaders(headers);
+
+    expect(merged.get('foo')).toBe('bar');
+    expect(forEach).not.toHaveBeenCalled();
+  });
+});
 
 describe('buildUrl', () => {
   const scenarios: Array<{
