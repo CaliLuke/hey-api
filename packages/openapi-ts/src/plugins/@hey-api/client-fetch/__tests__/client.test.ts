@@ -87,6 +87,31 @@ describe('buildUrl', () => {
 describe('zero-length body handling', () => {
   const client = createClient({ baseUrl: 'https://example.com' });
 
+  it('returns undefined for 204 JSON responses and validates the empty value', async () => {
+    const mockResponse = new Response(null, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      status: 204,
+    });
+    const mockFetch: MockFetch = vi.fn().mockResolvedValue(mockResponse);
+    const responseTransformer = vi.fn((data) => data);
+    const responseValidator = vi.fn();
+
+    const result = await client.request({
+      fetch: mockFetch,
+      method: 'DELETE',
+      responseStyle: 'data',
+      responseTransformer,
+      responseValidator,
+      url: '/test',
+    });
+
+    expect(result).toBeUndefined();
+    expect(responseValidator).toHaveBeenCalledWith(undefined);
+    expect(responseTransformer).toHaveBeenCalledWith(undefined);
+  });
+
   it('returns empty Blob for zero-length application/octet-stream response', async () => {
     const mockResponse = new Response(null, {
       headers: {
