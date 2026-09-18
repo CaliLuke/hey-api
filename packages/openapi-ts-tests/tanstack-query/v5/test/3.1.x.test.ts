@@ -55,7 +55,8 @@ describe(`OpenAPI ${version}`, () => {
           },
         ],
       }),
-      description: 'SSE POST endpoint is excluded from TanStack React Query mutations',
+      description:
+        'generates mutation hooks for JSON POST endpoints and excludes SSE POST endpoints',
     },
   ];
 
