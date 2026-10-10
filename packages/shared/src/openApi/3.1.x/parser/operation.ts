@@ -158,8 +158,14 @@ function operationToIrOperation({
     const response = operation.responses[name]! as
       | OpenAPIV3_1.ResponseObject
       | OpenAPIV3_1.ReferenceObject;
+    // OpenAPI 3.1 lets a Reference Object override the referenced description.
     const responseObject =
-      '$ref' in response ? context.resolveRef<OpenAPIV3_1.ResponseObject>(response.$ref) : response;
+      '$ref' in response
+        ? {
+            ...context.resolveRef<OpenAPIV3_1.ResponseObject>(response.$ref),
+            ...(response.description !== undefined && { description: response.description }),
+          }
+        : response;
     const contents = mediaTypeObjects({ content: responseObject.content });
     // TODO: add support for multiple content types, for now prefer JSON
     const content = contents.find((content) => content.type === 'json') || contents[0];

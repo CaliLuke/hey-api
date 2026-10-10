@@ -143,4 +143,38 @@ describe('operation', () => {
       { scheme: 'basic', type: 'http' },
     ]);
   });
+
+  it('uses the description of a response reference over the referenced description', () => {
+    const responses: Record<string, OpenAPIV3_1.ResponseObject> = {
+      '#/components/responses/Unauthorized': { description: 'Unauthorized response.' },
+    };
+    const localContext = {
+      config: { plugins: {} },
+      ir: { paths: {}, servers: [] },
+      resolveRef: (ref: string) => responses[ref],
+    } as unknown as Context;
+
+    parsePathOperation({
+      ambiguousSecurityKeys: new Set(),
+      context: localContext,
+      method: 'get',
+      operation: {
+        operationId: 'getData',
+        responses: {
+          '401': {
+            $ref: '#/components/responses/Unauthorized',
+            description: 'token_expired: The token has expired.',
+          },
+          '403': { $ref: '#/components/responses/Unauthorized' },
+        },
+      },
+      path: '/data',
+      securitySchemesMap: new Map(),
+      state: { ids: new Map<string, string>() },
+    });
+
+    const parsed = localContext.ir.paths?.['/data']?.get?.responses;
+    expect(parsed?.['401']?.schema.description).toBe('token_expired: The token has expired.');
+    expect(parsed?.['403']?.schema.description).toBe('Unauthorized response.');
+  });
 });
