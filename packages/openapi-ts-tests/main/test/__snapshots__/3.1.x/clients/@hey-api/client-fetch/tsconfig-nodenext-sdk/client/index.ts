@@ -12,6 +12,7 @@ export { serializeQueryKeyValue } from '../core/queryKeySerializer.gen.js';
 export type { ServerSentEventsResult } from '../core/serverSentEvents.gen.js';
 export type { ClientMeta } from '../core/types.gen.js';
 export { createClient } from './client.gen.js';
+export type { RequestContext, RequestLifecycle, RequestOutcome, RequestPhase } from './lifecycle.gen.js';
 export type {
   Client,
   ClientOptions,

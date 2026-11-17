@@ -6,6 +6,7 @@ import type {
   ServerSentEventsResult,
 } from '../core/serverSentEvents.gen';
 import type { Client as CoreClient, Config as CoreConfig } from '../core/types.gen';
+import type { RequestContext, RequestLifecycle } from './lifecycle.gen';
 import type { Middleware } from './utils.gen';
 
 export type ResponseStyle = 'data' | 'fields';
@@ -39,6 +40,12 @@ export interface Config<T extends ClientOptions = ClientOptions>
    * @default 'auto'
    */
   parseAs?: 'arrayBuffer' | 'auto' | 'blob' | 'formData' | 'json' | 'stream' | 'text';
+  /** Capture context for asynchronous preparation, including SSE preparation. */
+  requestContext?: () => RequestContext;
+  /** Create one unary lifecycle observer synchronously at invocation entry. */
+  requestLifecycle?: (
+    options: Pick<RequestOptions, 'url' | 'method' | 'headers' | 'signal'>,
+  ) => RequestLifecycle;
   /**
    * Should we return only data or multiple fields (data, error, response, etc.)?
    *

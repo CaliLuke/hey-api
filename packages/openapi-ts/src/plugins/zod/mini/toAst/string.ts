@@ -5,6 +5,7 @@ import { identifiers } from '../../constants';
 import type { StringResolverContext } from '../../resolvers';
 import type { Chain, ChainResult } from '../../shared/chain';
 import { getPatternMessage } from '../../shared/extensions';
+import { URI_REFERENCE_PATTERN } from '../../shared/uriReference';
 import type { ZodPlugin } from '../../types';
 
 function baseNode(ctx: StringResolverContext): Chain {
@@ -45,6 +46,12 @@ function formatNode(ctx: StringResolverContext): ChainResult {
       return $(z).attr(identifiers.ipv6).call();
     case 'time':
       return $(z).attr(identifiers.iso).attr(identifiers.time).call();
+    case 'uri-reference':
+      return $(z)
+        .attr(identifiers.string)
+        .call()
+        .attr(identifiers.check)
+        .call($(z).attr(identifiers.regex).call($.regexp(URI_REFERENCE_PATTERN)));
     case 'uri':
       return $(z).attr(identifiers.url).call();
     case 'uuid':

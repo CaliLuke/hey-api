@@ -1,11 +1,10 @@
 import type { SchemaVisitorContext, SchemaWithType } from '@hey-api/shared';
 
 import { $ } from '../../../../ts-dsl';
-import { maybeBigInt, shouldCoerceToBigInt } from '../../../shared/utils/coerce';
-import { getIntegerLimit } from '../../../shared/utils/formats';
 import { identifiers } from '../../constants';
 import type { NumberResolverContext } from '../../resolvers';
 import type { Chain, ChainResult } from '../../shared/chain';
+import { assertInteger64Value, integer64Utils } from '../../shared/integer64';
 import type { ZodPlugin } from '../../types';
 
 function baseNode(ctx: NumberResolverContext): Chain {
@@ -18,6 +17,9 @@ function baseNode(ctx: NumberResolverContext): Chain {
   if (schema.type === 'integer') {
     chain = $(z).attr(identifiers.int).call();
   }
+  if (ctx.plugin.config.integer64 === 'number' && schema.format === 'uint64') {
+    chain = chain.attr(identifiers.min).call($.literal(0));
+  }
   return chain;
 }
 
@@ -25,6 +27,7 @@ function constNode(ctx: NumberResolverContext): ChainResult {
   const { schema } = ctx;
   const { z } = ctx.plugin.imports;
   if (schema.const === undefined) return;
+  assertInteger64Value(schema.const, schema.format, ctx.plugin.config.integer64);
   return $(z).attr(identifiers.literal).call(ctx.utils.maybeBigInt(schema.const, schema.format));
 }
 
@@ -120,11 +123,7 @@ export function numberToNode({
     symbols: {
       z,
     },
-    utils: {
-      getIntegerLimit,
-      maybeBigInt,
-      shouldCoerceToBigInt,
-    },
+    utils: integer64Utils(plugin.config.integer64),
   };
   const resolver = plugin.config.$resolvers?.number ?? plugin.config['~resolvers']?.number;
   return resolver?.(ctx) ?? numberResolver(ctx);

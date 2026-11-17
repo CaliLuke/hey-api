@@ -53,6 +53,7 @@ export const identifiers = {
   optional: 'optional',
   output: 'output',
   parseAsync: 'parseAsync',
+  prefault: 'prefault',
   readonly: 'readonly',
   record: 'record',
   regex: 'regex',

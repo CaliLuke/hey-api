@@ -7,6 +7,7 @@ import type { BaseOutput, DefinePlugin, OutputHeader } from '@hey-api/shared';
 import { ensureDirSync, isEnvironment, outputHeaderToPrefix } from '@hey-api/shared';
 
 import type { Config } from '../config/types';
+import { resolveRuntimeConfigPath } from '../plugins/@hey-api/client-core/client';
 import type { Client } from '../plugins/@hey-api/client-core/types';
 import { getClientPlugin } from '../plugins/@hey-api/client-core/utils';
 
@@ -214,6 +215,19 @@ export function generateClientBundle({
         renamed,
       });
     }
+    // Emit a complete extension module rather than rewriting the client template.
+    const initializer = plugin.config['runtimeInitializerPath' as keyof typeof plugin.config];
+    if (plugin.name === '@hey-api/client-fetch' && typeof initializer === 'string') {
+      const source = resolveRuntimeConfigPath({
+        outputPath: clientOutputPath,
+        runtimeConfigPath: initializer,
+      });
+      fs.writeFileSync(
+        path.join(clientOutputPath, `${renamed.get('initialization') ?? 'initialization'}.ts`),
+        `${headerPrefix}export { initializeClient } from ${JSON.stringify(source)};\n`,
+      );
+    }
+
     return renamed;
   }
 

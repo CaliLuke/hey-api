@@ -207,6 +207,16 @@ export type UserConfig = Plugin.Name<'zod'> &
                 };
           };
         };
+    /** Import the Zod API as a namespace or as the named `z` export. */
+    importKind?: 'namespace' | 'named';
+    /** Module exporting the selected Zod API. Defaults to the installed Zod package. */
+    importPath?: string;
+    /**
+     * Representation of int64/uint64 integers. Number mode accepts only safe JSON
+     * integers and preserves string-typed schemas without bigint coercion.
+     * @default 'bigint'
+     */
+    integer64?: 'number' | 'bigint';
     /**
      * Enable Zod metadata support? It's often useful to associate a schema with
      * some additional metadata for documentation, code generation, AI
@@ -1341,6 +1351,10 @@ export type Config = Plugin.Name<'zod'> &
     };
     /** Configuration for reusable schema definitions. */
     definitions: NamingOptions & FeatureToggle & TypeOptions;
+    importKind?: 'namespace' | 'named';
+    importPath?: string;
+    /** Representation of 64-bit integers. */
+    integer64: 'number' | 'bigint';
     /** Enable Zod metadata support? */
     metadata:
       | boolean

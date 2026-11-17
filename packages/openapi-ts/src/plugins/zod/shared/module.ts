@@ -1,6 +1,16 @@
-import type { ZodPlugin } from '../types';
+import type { PluginInstance } from '@hey-api/shared';
 
-export function getZodModule({ plugin }: { plugin: ZodPlugin['Instance'] }): string {
+import type { Config } from '../types';
+
+export function getZodModule({
+  plugin,
+}: {
+  plugin: {
+    config: Pick<Config, 'importPath' | 'compatibilityVersion'>;
+    package: PluginInstance['package'];
+  };
+}): string {
+  if (plugin.config.importPath) return plugin.config.importPath;
   const version = plugin.package.getVersion('zod');
 
   if (version) {

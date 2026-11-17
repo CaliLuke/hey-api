@@ -55,6 +55,8 @@ export default defineConfig({
 
       if (fs.existsSync(srcPath)) {
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
+        // Deleted templates must not survive a subsequent build or package.
+        fs.rmSync(destPath, { force: true, recursive: true });
         fs.cpSync(srcPath, destPath, { recursive: true });
 
         // replace core imports in client bundle

@@ -4,6 +4,7 @@ import { $ } from '../../../../ts-dsl';
 import { identifiers } from '../../constants';
 import type { EnumResolverContext } from '../../resolvers';
 import type { Chain } from '../../shared/chain';
+import { assertInteger64Value } from '../../shared/integer64';
 import type { ZodPlugin } from '../../types';
 import { unknownToAst } from './unknown';
 
@@ -23,6 +24,7 @@ function itemsNode(ctx: EnumResolverContext): ReturnType<EnumResolverContext['no
       (item.type === 'number' || item.type === 'integer') &&
       typeof item.const === 'number'
     ) {
+      assertInteger64Value(item.const, item.format ?? schema.format, ctx.plugin.config.integer64);
       const literal = $.literal(item.const);
       literalSchemas.push($(z).attr(identifiers.literal).call(literal));
     } else if (item.type === 'boolean' && typeof item.const === 'boolean') {

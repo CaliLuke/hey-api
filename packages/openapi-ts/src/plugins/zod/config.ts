@@ -81,6 +81,7 @@ export const defaultConfig: ZodPlugin['Config'] = {
       },
     },
     includeInEntry: false,
+    integer64: 'bigint',
     metadata: false,
     requests: {
       $coerceAny: ({ type, value }) => ({

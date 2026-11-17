@@ -3,6 +3,8 @@
 import { createSseClient } from '../core/serverSentEvents.gen';
 import type { HttpMethod } from '../core/types.gen';
 import { getValidRequestBody } from '../core/utils.gen';
+import { initializeClient } from './initialization.gen';
+import { defaultRequestLifecycle } from './lifecycle.gen';
 import type { Client, Config, RequestOptions, ResolvedRequestOptions } from './types.gen';
 import {
   buildUrl,
@@ -20,7 +22,8 @@ type ReqInit = Omit<RequestInit, 'body' | 'headers'> & {
   headers: ReturnType<typeof mergeHeaders>;
 };
 
-export const createClient = (config: Config = {}): Client => {
+/** Construct and initialize each client before exposing it to callers. */
+export function createClient(config: Config = {}): Client {
   let _config = mergeConfigs(createConfig(), config);
 
   const getConfig = (): Config => ({ ..._config });
@@ -40,6 +43,8 @@ export const createClient = (config: Config = {}): Client => {
   >(
     options: RequestOptions<TData, TResponseStyle, ThrowOnError, Url>,
   ) => {
+    const requestContext = (options.requestContext ?? _config.requestContext)?.();
+    const bind = <T>(callback: T): T => requestContext?.bind(callback) ?? callback;
     const opts = {
       ..._config,
       ...options,
@@ -48,19 +53,22 @@ export const createClient = (config: Config = {}): Client => {
       serializedBody: undefined as string | undefined,
     };
 
+    if (typeof opts.auth === 'function') {
+      opts.auth = bind(opts.auth);
+    }
     if (opts.security) {
       await setAuthParams(opts);
     }
 
     if (opts.requestValidator) {
-      await opts.requestValidator({
+      await bind(opts.requestValidator).call(opts, {
         ...opts,
         headers: getHeadersForValidation(opts.headers, _config.headers, options.headers),
       });
     }
 
     if (opts.body !== undefined && opts.bodySerializer) {
-      opts.serializedBody = opts.bodySerializer(opts.body) as string | undefined;
+      opts.serializedBody = bind(opts.bodySerializer).call(opts, opts.body) as string | undefined;
     }
 
     // remove Content-Type header if body is empty to avoid sending invalid requests
@@ -70,7 +78,7 @@ export const createClient = (config: Config = {}): Client => {
 
     const resolvedOpts = opts as typeof opts &
       ResolvedRequestOptions<TResponseStyle, ThrowOnError, Url>;
-    const url = buildUrl(resolvedOpts);
+    const url = bind(buildUrl)(resolvedOpts);
 
     return { opts: resolvedOpts, url };
   };
@@ -79,11 +87,14 @@ export const createClient = (config: Config = {}): Client => {
     const throwOnError = options.throwOnError ?? _config.throwOnError;
     const responseStyle = options.responseStyle ?? _config.responseStyle;
 
+    options = { ...options };
+    const timing =
+      (options.requestLifecycle ?? _config.requestLifecycle)?.(options) ?? defaultRequestLifecycle;
     let request: Request | undefined;
     let response: Response | undefined;
 
     try {
-      const { opts, url } = await beforeRequest(options);
+      const { opts, url } = await timing.bind(beforeRequest)(options);
       const requestInit: ReqInit = {
         redirect: 'follow',
         ...opts,
@@ -91,10 +102,11 @@ export const createClient = (config: Config = {}): Client => {
       };
 
       request = new Request(url, requestInit);
+      timing.phase('request_interceptors');
 
       for (const fn of interceptors.request.fns) {
         if (fn) {
-          request = await fn(request, opts);
+          request = await timing.bind(fn)(request, opts);
         }
       }
 
@@ -102,11 +114,13 @@ export const createClient = (config: Config = {}): Client => {
       // TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation
       const _fetch = opts.fetch!;
 
-      response = await _fetch(request);
+      timing.phase('response_headers');
+      response = await timing.bind(_fetch)(request);
+      timing.phase('response_interceptors');
 
       for (const fn of interceptors.response.fns) {
         if (fn) {
-          response = await fn(response, request, opts);
+          response = await timing.bind(fn)(response, request, opts);
         }
       }
 
@@ -116,6 +130,7 @@ export const createClient = (config: Config = {}): Client => {
       };
 
       if (response.ok) {
+        timing.phase('body_read');
         const parseAs =
           (opts.parseAs === 'auto'
             ? getParseAs(response.headers.get('Content-Type'))
@@ -137,6 +152,7 @@ export const createClient = (config: Config = {}): Client => {
               break;
             case 'json': {
               const text = await response.text();
+              timing.phase('json_parse');
               data = text ? JSON.parse(text) : {};
               break;
             }
@@ -146,14 +162,24 @@ export const createClient = (config: Config = {}): Client => {
           }
         }
 
+        timing.phase('finalize');
         if (opts.responseValidator) {
-          await opts.responseValidator(data);
+          timing.phase('response_validation');
+          await timing.bind(opts.responseValidator).call(opts, data);
+          timing.phase('finalize');
         }
 
         if (parseAs === 'json' && opts.responseTransformer) {
-          data = await opts.responseTransformer(data);
+          timing.phase('response_transform');
+          data = await timing.bind(opts.responseTransformer).call(opts, data);
+          timing.phase('finalize');
         }
 
+        timing.finish(
+          request,
+          response,
+          response.status !== 204 && parseAs === 'stream' ? 'stream_open' : 'complete',
+        );
         return opts.responseStyle === 'data'
           ? data
           : {
@@ -162,7 +188,9 @@ export const createClient = (config: Config = {}): Client => {
             };
       }
 
+      timing.phase('error_body_read');
       const textError = await response.text();
+      timing.phase('error_json_parse');
       let jsonError: unknown;
 
       try {
@@ -173,11 +201,25 @@ export const createClient = (config: Config = {}): Client => {
 
       throw jsonError ?? textError;
     } catch (error) {
+      const signal = request?.signal ?? options.signal;
+      timing.finish(
+        request,
+        response,
+        response?.ok !== false && signal?.aborted && Object.is(error, signal.reason)
+          ? 'cancelled'
+          : 'failed',
+        error,
+      );
       let finalError = error;
 
       for (const fn of interceptors.error.fns) {
         if (fn) {
-          finalError = await fn(finalError, response, request, options as ResolvedRequestOptions);
+          finalError = await timing.bind(fn)(
+            finalError,
+            response,
+            request,
+            options as ResolvedRequestOptions,
+          );
         }
       }
 
@@ -223,7 +265,7 @@ export const createClient = (config: Config = {}): Client => {
 
   const _buildUrl: Client['buildUrl'] = (options) => buildUrl({ ..._config, ...options });
 
-  return {
+  const client = {
     buildUrl: _buildUrl,
     connect: makeMethodFn('CONNECT'),
     delete: makeMethodFn('DELETE'),
@@ -250,4 +292,6 @@ export const createClient = (config: Config = {}): Client => {
     },
     trace: makeMethodFn('TRACE'),
   } as Client;
-};
+  initializeClient(client);
+  return client;
+}

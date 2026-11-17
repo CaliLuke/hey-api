@@ -10,6 +10,7 @@ export { serializeQueryKeyValue } from '../../client-core/bundle/queryKeySeriali
 export type { ServerSentEventsResult } from '../../client-core/bundle/serverSentEvents';
 export type { ClientMeta } from '../../client-core/bundle/types';
 export { createClient } from './client';
+export type { RequestContext, RequestLifecycle, RequestOutcome, RequestPhase } from './lifecycle';
 export type {
   Client,
   ClientOptions,

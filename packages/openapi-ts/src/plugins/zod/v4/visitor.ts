@@ -3,13 +3,13 @@ import type { SchemaExtractor, SchemaVisitor } from '@hey-api/shared';
 import { pathToJsonPointer } from '@hey-api/shared';
 
 import { $ } from '../../../ts-dsl';
-import { maybeBigInt, shouldCoerceToBigInt } from '../../shared/utils/coerce';
 import { identifiers } from '../constants';
 import { ZodContracts } from '../contracts';
+import { assertInteger64Value, integer64Utils } from '../shared/integer64';
 import { defaultMeta, inheritMeta } from '../shared/meta';
 import type { ProcessorContext } from '../shared/processor';
 import type { ZodFinal, ZodMeta, ZodResult } from '../shared/types';
-import type { ZodPlugin } from '../types';
+import type { Config, ZodPlugin } from '../types';
 import { arrayToAst } from './toAst/array';
 import { booleanToAst } from './toAst/boolean';
 import { enumToAst } from './toAst/enum';
@@ -32,8 +32,14 @@ export interface VisitorConfig {
   schemaExtractor?: SchemaExtractor<ProcessorContext>;
 }
 
-function getDefaultValue(meta: ZodMeta): ReturnType<typeof $.fromValue> {
-  return meta.format ? maybeBigInt(meta.default, meta.format) : $.fromValue(meta.default);
+function getDefaultValue(
+  meta: ZodMeta,
+  policy: Config['integer64'],
+): ReturnType<typeof $.fromValue> {
+  assertInteger64Value(meta.default, meta.format, policy);
+  return meta.format
+    ? integer64Utils(policy).maybeBigInt(meta.default, meta.format)
+    : $.fromValue(meta.default);
 }
 
 export function createVisitor(
@@ -64,7 +70,10 @@ export function createVisitor(
       }
 
       if (needsDefault) {
-        chain = chain.attr(identifiers.default).call(getDefaultValue(result.meta));
+        chain = chain
+          // Validate nested defaults too: Zod 4 default() otherwise bypasses parsing.
+          .attr(plugin.config.integer64 === 'number' ? identifiers.prefault : identifiers.default)
+          .call(getDefaultValue(result.meta, plugin.config.integer64));
       }
 
       return {
@@ -259,7 +268,7 @@ export function createVisitor(
       };
     },
     string(schema, ctx) {
-      if (shouldCoerceToBigInt(schema.format)) {
+      if (integer64Utils(plugin.config.integer64).shouldCoerceToBigInt(schema.format)) {
         const chain = numberToNode({
           path: ctx.path,
           plugin,
