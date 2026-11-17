@@ -8,6 +8,7 @@ import { cliToConfig } from './adapter';
 const binName = Object.keys(pkg.bin)[0]!;
 
 const program = new Command()
+  .exitOverride()
   .name(binName)
   .description('Generate Python code from OpenAPI specifications')
   .version(isEnvironment('development') ? '[DEVELOPMENT]' : pkg.version);
@@ -47,7 +48,7 @@ export async function runCli(): Promise<void> {
         console.error(`\nUnknown option. Run '${binName} --help' for available options.\n`);
       }
 
-      process.exit(error.exitCode);
+      return process.exit(error.exitCode);
     }
 
     console.error('Unexpected error:', error);

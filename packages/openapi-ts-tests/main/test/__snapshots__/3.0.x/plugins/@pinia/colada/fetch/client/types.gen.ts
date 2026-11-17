@@ -5,7 +5,11 @@ import type {
   ServerSentEventsOptions,
   ServerSentEventsResult,
 } from '../core/serverSentEvents.gen';
-import type { Client as CoreClient, Config as CoreConfig } from '../core/types.gen';
+import type {
+  Client as CoreClient,
+  Config as CoreConfig,
+  Fetch,
+} from '../core/types.gen';
 import type { RequestContext, RequestLifecycle } from './lifecycle.gen';
 import type { Middleware } from './utils.gen';
 
@@ -23,7 +27,7 @@ export interface Config<T extends ClientOptions = ClientOptions>
    *
    * @default globalThis.fetch
    */
-  fetch?: typeof fetch;
+  fetch?: Fetch;
   /**
    * Please don't use the Fetch client for Next.js applications. The `next`
    * options won't have any effect.

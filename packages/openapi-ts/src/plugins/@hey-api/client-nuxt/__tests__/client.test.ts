@@ -140,3 +140,36 @@ describe('buildUrl', () => {
     );
   });
 });
+
+it('resolves Nuxt request getters before opening a native SSE request', async () => {
+  const controller = new AbortController();
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response('data: {"ok":true}\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    }),
+  );
+  try {
+    const client = createClient({ baseURL: 'https://example.com' });
+    const { stream } = await client.sse.get({
+      cache: () => false,
+      credentials: () => 'include',
+      mode: computed(() => 'cors' as const),
+      redirect: () => 'follow',
+      signal: () => controller.signal,
+      url: '/events',
+    });
+    expect(await stream.next()).toEqual({ done: false, value: { ok: true } });
+    const request = fetchSpy.mock.calls[0]![0];
+    expect(request).toBeInstanceOf(Request);
+    if (!(request instanceof Request)) throw new Error('Expected a native Request');
+    expect(request.cache).toBe('no-store');
+    expect(request.credentials).toBe('include');
+    expect(request.mode).toBe('cors');
+    expect(request.redirect).toBe('follow');
+    controller.abort();
+    expect(request.signal.aborted).toBe(true);
+    await stream.return();
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});

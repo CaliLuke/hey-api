@@ -1,4 +1,4 @@
-import type { Config } from './types';
+import type { Config, Fetch } from './types';
 
 export type ServerSentEventsOptions<TData = unknown> = Omit<RequestInit, 'method'> &
   Pick<Config, 'method' | 'responseTransformer' | 'responseValidator'> & {
@@ -8,7 +8,7 @@ export type ServerSentEventsOptions<TData = unknown> = Omit<RequestInit, 'method
      *
      * @default globalThis.fetch
      */
-    fetch?: typeof fetch;
+    fetch?: Fetch;
     /**
      * Implementing clients can call request interceptors inside this hook.
      */

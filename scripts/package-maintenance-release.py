@@ -3,7 +3,7 @@
 
 Usage: python3 scripts/package-maintenance-release.py TAG OUTPUT_DIRECTORY
 The command does not publish. release-manifest.json records dirty source explicitly;
-publish only a clean, verified source commit and upload all three generated files.
+publish only a clean, verified source commit and upload every generated archive and the manifest.
 """
 
 import gzip
@@ -74,9 +74,33 @@ def main():
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip())
     run("pnpm", "build", "--filter=@hey-api/openapi-ts...", "--filter=@hey-api/shared...")
-    shared = pack("shared", destination, {})
-    shared_url = f"https://github.com/{REPOSITORY}/releases/download/{tag}/{shared.name}"
-    generator = pack("openapi-ts", destination, {"@hey-api/shared": shared_url})
+    # Release the complete production workspace closure. Otherwise updated parser
+    # or code-generation dependencies could silently resolve to old npm releases.
+    packages = {}
+    for file in (ROOT / "packages").glob("*/package.json"):
+        package = json.loads(file.read_text())
+        packages[package["name"]] = (file.parent.name, package)
+    archives = {}
+    visiting = set()
+
+    def package_dependency(name):
+        if name in archives:
+            return archives[name]
+        if name in visiting:
+            raise RuntimeError(f"Circular production workspace dependency: {name}")
+        visiting.add(name)
+        folder, package = packages[name]
+        replacements = {}
+        for dependency, version in package.get("dependencies", {}).items():
+            if version.startswith("workspace:"):
+                archive = package_dependency(dependency)
+                replacements[dependency] = f"https://github.com/{REPOSITORY}/releases/download/{tag}/{archive.name}"
+        archive = pack(folder, destination, replacements)
+        archives[name] = archive
+        visiting.remove(name)
+        return archive
+
+    package_dependency("@hey-api/openapi-ts")
     manifest = {
         "repository": REPOSITORY,
         "tag": tag,
@@ -84,7 +108,7 @@ def main():
         "sourceDirty": dirty,
         "assets": {
             file.name: {"sha256": hashlib.sha256(file.read_bytes()).hexdigest(), "bytes": file.stat().st_size}
-            for file in (shared, generator)
+            for file in archives.values()
         },
     }
     (destination / "release-manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")

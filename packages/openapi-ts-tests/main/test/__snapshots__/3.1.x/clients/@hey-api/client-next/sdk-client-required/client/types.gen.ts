@@ -5,7 +5,11 @@ import type {
   ServerSentEventsOptions,
   ServerSentEventsResult,
 } from '../core/serverSentEvents.gen';
-import type { Client as CoreClient, Config as CoreConfig } from '../core/types.gen';
+import type {
+  Client as CoreClient,
+  Config as CoreConfig,
+  Fetch,
+} from '../core/types.gen';
 import type { Middleware } from './utils.gen';
 
 export interface Config<T extends ClientOptions = ClientOptions>
@@ -20,7 +24,7 @@ export interface Config<T extends ClientOptions = ClientOptions>
    *
    * @default globalThis.fetch
    */
-  fetch?: typeof fetch;
+  fetch?: Fetch;
   /**
    * Return the response data parsed in a specified format. By default, `auto`
    * will infer the appropriate method from the `Content-Type` response header.

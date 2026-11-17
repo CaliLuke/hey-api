@@ -144,7 +144,6 @@ describe('cli', () => {
         '--client',
         'foo',
         '--dry-run',
-        'true',
         '--file',
         'bar',
         '--input',
@@ -172,6 +171,23 @@ describe('cli', () => {
       watch: true,
     });
   });
+
+  it.each([['--input'], ['--unknown-option'], ['--dry-run', 'true']])(
+    'rejects invalid arguments %j without generating',
+    async (...args) => {
+      const originalArgv = process.argv;
+      const spyError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        process.argv = [...originalArgv.slice(0, 2), ...args];
+        await runCli();
+        expect(spy).not.toHaveBeenCalled();
+        expect(spyExit).toHaveBeenCalledExactlyOnceWith(1);
+      } finally {
+        process.argv = originalArgv;
+        spyError.mockRestore();
+      }
+    },
+  );
 
   it('exits when not in watch mode', async () => {
     const originalArgv = process.argv.slice();

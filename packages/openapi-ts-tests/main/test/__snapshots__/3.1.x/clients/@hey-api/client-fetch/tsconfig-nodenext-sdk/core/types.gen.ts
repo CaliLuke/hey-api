@@ -3,6 +3,9 @@
 import type { Auth, AuthToken } from './auth.gen.js';
 import type { BodySerializer, QuerySerializer, QuerySerializerOptions } from './bodySerializer.gen.js';
 
+/** Fetch call signature without runtime-specific static helpers such as Bun.preconnect. */
+export type Fetch = (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>;
+
 export type HttpMethod =
   | 'connect'
   | 'delete'

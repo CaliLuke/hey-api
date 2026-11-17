@@ -526,7 +526,7 @@ export function operationReturnType({
       .generic($.type.or(queryType('response'), nuxtTypeDefault));
     return isSse
       ? $.type('Promise').generic(sseResult.generic(inner.generic('unknown')))
-      : inner.generic(nuxtTypeDefault);
+      : inner.generic(queryType('error'));
   }
 
   if (isSse) {

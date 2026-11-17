@@ -6,7 +6,11 @@ import type {
   ServerSentEventsOptions,
   ServerSentEventsResult,
 } from '../../client-core/bundle/serverSentEvents';
-import type { Client as CoreClient, Config as CoreConfig } from '../../client-core/bundle/types';
+import type {
+  Client as CoreClient,
+  Config as CoreConfig,
+  Fetch,
+} from '../../client-core/bundle/types';
 import type { Middleware } from './utils';
 
 export type ResponseStyle = 'data' | 'fields';
@@ -31,7 +35,7 @@ export interface Config<T extends ClientOptions = ClientOptions>
    *
    * @default globalThis.fetch
    */
-  fetch?: typeof fetch;
+  fetch?: Fetch;
   /**
    * Controls the native ofetch behaviour that throws `FetchError` when
    * `response.ok === false`. We default to suppressing it to match the fetch

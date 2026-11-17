@@ -40,7 +40,7 @@ export async function resolveExternal(parser: $RefParser, options: $RefParserOpt
  * then the corresponding promise will internally reference an array of promises.
  */
 function crawl<S extends object = JSONSchema>(
-  obj: string | Buffer | S | undefined | null,
+  obj: unknown,
   {
     $refs,
     external = false,
@@ -102,7 +102,7 @@ function crawl<S extends object = JSONSchema>(
  * including nested references that are contained in externally-referenced files.
  */
 async function resolve$Ref<S extends object = JSONSchema>(
-  $ref: S,
+  $ref: object,
   {
     $refs,
     options,
@@ -125,7 +125,7 @@ async function resolve$Ref<S extends object = JSONSchema>(
   const ref = $refs._$refs[withoutHash];
   if (ref) {
     // We've already parsed this $ref, so crawl it to resolve its own externals
-    const promises = crawl(ref.value as S, {
+    const promises = crawl(ref.value, {
       $refs,
       external: true,
       options,

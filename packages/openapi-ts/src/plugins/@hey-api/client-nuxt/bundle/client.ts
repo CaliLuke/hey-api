@@ -174,14 +174,25 @@ export const createClient = (config: Config = {}): Client => {
 
   const makeSseFn = (method: Uppercase<HttpMethod>) => async (options: RequestOptions) => {
     const { opts, url } = await beforeRequest(options);
+    const cache = toValue(opts.cache);
     return createSseClient({
       ...unwrapRefs(opts),
       body: opts.body as BodyInit | null | undefined,
+      cache: cache === false ? 'no-store' : cache,
+      credentials: toValue(opts.credentials),
+      integrity: toValue(opts.integrity),
+      keepalive: toValue(opts.keepalive),
       method,
+      mode: toValue(opts.mode),
       onRequest: undefined,
+      priority: toValue(opts.priority),
+      redirect: toValue(opts.redirect),
+      referrer: toValue(opts.referrer),
+      referrerPolicy: toValue(opts.referrerPolicy),
       serializedBody: getValidRequestBody(opts) as BodyInit | null | undefined,
-      signal: unwrapRefs(opts.signal) as AbortSignal,
+      signal: toValue(opts.signal) as AbortSignal | undefined,
       url,
+      window: toValue(opts.window),
     });
   };
 
