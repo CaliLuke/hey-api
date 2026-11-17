@@ -40,5 +40,9 @@ export async function generate(
     compilerOptions: { module: ts.ModuleKind.CommonJS },
   }).outputText;
   new Function('require', 'exports', js)(require, exports);
-  return { types: fs.readFileSync(path.join(output, 'types.gen.ts'), 'utf8'), validators: exports };
+  return {
+    source,
+    types: fs.readFileSync(path.join(output, 'types.gen.ts'), 'utf8'),
+    validators: exports,
+  };
 }

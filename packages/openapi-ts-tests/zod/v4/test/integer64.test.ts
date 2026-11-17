@@ -1,3 +1,6 @@
+import path from 'node:path';
+
+import { snapshotsDir } from './constants';
 import { generate } from './generatedValidators';
 
 for (const version of [3, 4, 'mini'] as const) {
@@ -74,6 +77,18 @@ for (const version of [3, 4, 'mini'] as const) {
       for (const name of ['zObjectDefault', 'zArrayDefault', 'zUnsignedDefault'])
         expect(v[name]!.safeParse(undefined).success).toBe(false);
       expect(v.zValidDefault!.parse(undefined)).toEqual({ id: 1 });
+    });
+
+    it('emits required output types for defaulted properties', async () => {
+      const { source } = await generate(version, {
+        Defaulted: {
+          properties: { id: { default: 1, format: 'int64', type: 'integer' } },
+          type: 'object',
+        },
+      });
+      await expect(source).toMatchFileSnapshot(
+        path.join(snapshotsDir, 'integer64', String(version), 'zod.gen.ts'),
+      );
     });
 
     it.each(['const', 'default', 'enum'])(

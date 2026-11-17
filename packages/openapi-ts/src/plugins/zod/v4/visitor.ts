@@ -51,7 +51,11 @@ export function createVisitor(
 
   return {
     applyModifiers(result, ctx, options = {}): ZodFinal {
-      const { optional } = options;
+      // prefault accepts undefined itself; an optional inner schema would leak
+      // undefined into the output type even though a default is always supplied.
+      const optional =
+        options.optional &&
+        (plugin.config.integer64 !== 'number' || result.meta.default === undefined);
       let chain = result.chain;
 
       if (result.meta.readonly) {
