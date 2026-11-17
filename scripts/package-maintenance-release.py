@@ -46,6 +46,11 @@ def pack(package, destination, replacements):
             if name not in manifest["dependencies"]:
                 raise RuntimeError(f"Missing expected dependency {name}")
             manifest["dependencies"][name] = url
+        # pnpm resolves workspace dependencies concurrently. Normalize only maps
+        # whose order has no meaning; conditional exports/imports are order-sensitive.
+        for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+            if key in manifest:
+                manifest[key] = dict(sorted(manifest[key].items()))
         contents["package/package.json"] = (mode, (json.dumps(manifest, indent=2) + "\n").encode())
         output = destination / archive.name
         with output.open("wb") as file, gzip.GzipFile(fileobj=file, mode="wb", filename="", mtime=0) as compressed:
@@ -82,8 +87,8 @@ def main():
             for file in (shared, generator)
         },
     }
-    (destination / "release-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    print(json.dumps(manifest, indent=2))
+    (destination / "release-manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    print(json.dumps(manifest, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
