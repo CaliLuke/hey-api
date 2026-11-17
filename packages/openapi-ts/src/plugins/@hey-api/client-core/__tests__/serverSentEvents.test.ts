@@ -675,6 +675,73 @@ describe('createSseClient', () => {
     for await (const ev of stream) result.push(ev);
     expect(result).toEqual([1, 2, 3]);
   });
+
+  it('handles line endings split across chunks', async () => {
+    fetchMock.mockResolvedValue({
+      body: makeStream([
+        'id: 1\r',
+        '\ndata: a\r\n',
+        '\r\n',
+        'data: b\r',
+        '\r',
+        'data: c\r',
+        '\ndata: d\n\n',
+      ]),
+      ok: true,
+    });
+
+    const onEvent = vi.fn();
+    const { stream } = createSseClient({
+      onSseEvent: onEvent,
+      url: 'http://localhost/sse',
+    });
+
+    const result: Array<any> = [];
+    for await (const ev of stream) result.push(ev);
+    expect(result).toEqual(['a', 'b', 'c\nd']);
+    expect(onEvent).toHaveBeenCalledTimes(3);
+    expect(onEvent.mock.calls[0]![0].id).toBe('1');
+  });
+
+  it('yields the same events whatever the chunk boundaries', async () => {
+    const body =
+      'event: one\ndata: {"n":1}\n\n: comment\nretry: 10\n\nevent: two\ndata: {"n":\ndata: 2}\n\n';
+    for (const size of [1, 2, 3, 7, body.length]) {
+      const chunks: Array<string> = [];
+      for (let i = 0; i < body.length; i += size) chunks.push(body.slice(i, i + size));
+      fetchMock.mockResolvedValue({ body: makeStream(chunks), ok: true });
+
+      const onEvent = vi.fn();
+      const { stream } = createSseClient({ onSseEvent: onEvent, url: 'http://localhost/sse' });
+      const result: Array<any> = [];
+      for await (const ev of stream) result.push(ev);
+
+      expect(result).toEqual([{ n: 1 }, { n: 2 }]);
+      expect(onEvent.mock.calls.map((call) => call[0].event)).toEqual(['one', undefined, 'two']);
+      expect(onEvent.mock.calls[2]![0].retry).toBe(10);
+    }
+  });
+
+  it('parses a large single-line event in linear time', async () => {
+    const payload = 'x'.repeat(32 * 1024 * 1024);
+    const body = `data: "${payload}"\n\n`;
+    const chunkSize = 16 * 1024;
+    const chunks: Array<string> = [];
+    for (let i = 0; i < body.length; i += chunkSize) chunks.push(body.slice(i, i + chunkSize));
+    fetchMock.mockResolvedValue({ body: makeStream(chunks), ok: true });
+
+    const { stream } = createSseClient({ url: 'http://localhost/sse' });
+    const started = performance.now();
+    const result: Array<any> = [];
+    for await (const ev of stream) result.push(ev);
+    const seconds = (performance.now() - started) / 1000;
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toHaveLength(payload.length);
+    // A parser that re-scans its whole buffer on every chunk needs about 20 s
+    // for this body; one that touches each character once needs about 0.1 s.
+    expect(seconds).toBeLessThan(15);
+  }, 90_000);
 });
 
 describe('serialized request body handling', () => {
@@ -771,4 +838,102 @@ describe('serialized request body handling', () => {
       }),
     );
   });
+});
+
+// Chunk boundaries belong to transport and must never change the decoded protocol.
+describe('SSE framing contracts', () => {
+  it('preserves one-space semantics for data, event and ID fields', async () => {
+    const events: unknown[] = [];
+    const { stream } = createSseClient({
+      fetch: async () => new Response(makeStream(['id:  id\nevent:  event\ndata:  text\n\n'])),
+      onSseEvent: (event) => events.push(event),
+      url: 'https://example.com/events',
+    });
+    const values: unknown[] = [];
+    for await (const value of stream) values.push(value);
+    expect(values).toEqual([' text']);
+    expect(events).toEqual([{ data: ' text', event: ' event', id: ' id', retry: 3000 }]);
+  });
+
+  it('decodes the same JSON at every byte split, including CRLF and UTF-8', async () => {
+    const bytes = new TextEncoder().encode(
+      'event: update\r\ndata: {"text":"café",\r\ndata: "ok":true}\r\n\r\n',
+    );
+    for (let split = 1; split < bytes.length; split++) {
+      const values: unknown[] = [];
+      const { stream } = createSseClient({
+        fetch: async () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(bytes.slice(0, split));
+                controller.enqueue(bytes.slice(split));
+                controller.close();
+              },
+            }),
+          ),
+        sseMaxRetryAttempts: 1,
+        url: 'https://example.com/events',
+      });
+      for await (const value of stream) values.push(value);
+      expect(values, `split ${split}`).toEqual([{ ok: true, text: 'café' }]);
+    }
+  });
+
+  it('settles rejected reader cancellation without replaying the request', async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn().mockRejectedValue(new Error('stream already errored'));
+    const cancelSpy = vi
+      .spyOn(ReadableStreamDefaultReader.prototype, 'cancel')
+      .mockImplementation(cancel);
+    const fetch = vi.fn(async () => new Response(makeStream(['data: 1\n\n'])));
+    try {
+      const { stream } = createSseClient({
+        fetch,
+        signal: controller.signal,
+        url: 'https://example.com/events',
+      });
+      expect(await stream.next()).toMatchObject({ value: 1 });
+      controller.abort();
+      await stream.return(undefined);
+      await Promise.resolve();
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      cancelSpy.mockRestore();
+    }
+  });
+});
+
+it('does not advance the replay cursor or retry delay for an interrupted frame', async () => {
+  const requests: Request[] = [];
+  const sleep = vi.fn(async () => undefined);
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    requests.push(input as Request);
+    if (requests.length > 1) return new Response(makeStream(['id: 2\ndata: 2\n\n']));
+    let pulls = 0;
+    return new Response(
+      new ReadableStream({
+        pull(controller) {
+          if (pulls++ === 0)
+            controller.enqueue(
+              new TextEncoder().encode('id: 1\ndata: 1\n\nid: 2\nretry: 999\ndata: 2\n'),
+            );
+          else controller.error(new Error('connection interrupted'));
+        },
+      }),
+    );
+  });
+  const values: unknown[] = [];
+  const { stream } = createSseClient({
+    fetch,
+    sseDefaultRetryDelay: 1,
+    sseMaxRetryAttempts: 2,
+    sseSleepFn: sleep,
+    url: 'https://example.com/events',
+  });
+  for await (const value of stream) values.push(value);
+  expect(values).toEqual([1, 2]);
+  expect(requests[1]?.headers.get('Last-Event-ID')).toBe('1');
+  expect(sleep).toHaveBeenCalledExactlyOnceWith(1);
 });

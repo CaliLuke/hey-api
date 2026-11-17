@@ -171,7 +171,7 @@ export const mergeConfigs = (a: Config, b: Config): Config => {
   if (config.baseUrl?.endsWith('/')) {
     config.baseUrl = config.baseUrl.substring(0, config.baseUrl.length - 1);
   }
-  config.headers = mergeHeaders(a.headers, b.headers);
+  config.headers = mergeHeaderOptions(a.headers, b.headers);
   return config;
 };
 
@@ -198,7 +198,12 @@ export const mergeHeaders = (
       continue;
     }
 
-    const iterator = header instanceof Headers ? headersEntries(header) : Object.entries(header);
+    const iterator =
+      header instanceof Headers
+        ? headersEntries(header)
+        : Array.isArray(header)
+          ? headersEntries(new Headers(header))
+          : Object.entries(header);
 
     for (const [key, value] of iterator) {
       if (value === null) {
@@ -218,6 +223,66 @@ export const mergeHeaders = (
     }
   }
   return mergedHeaders;
+};
+
+/** Merge SDK defaults without consuming deletion markers or serializing typed values. */
+export const mergeHeaderOptions = (
+  ...headers: Array<Config['headers']>
+): Record<string, unknown> => {
+  const values: Record<string, unknown> = Object.create(null);
+  for (const header of headers) {
+    if (!header) continue;
+    const entries =
+      header instanceof Headers
+        ? headersEntries(header)
+        : Array.isArray(header)
+          ? headersEntries(new Headers(header))
+          : Object.entries(header);
+    for (const [name, value] of entries) {
+      if (value === undefined) continue;
+      const key = name.toLowerCase();
+      const previous = values[key];
+      // Appending follows the existing wire value; objects were JSON-serialized
+      // before append, so do not turn them into "[object Object]" array elements.
+      const prefix =
+        previous && typeof previous === 'object' && !Array.isArray(previous)
+          ? JSON.stringify(previous)
+          : previous;
+      values[key] = Array.isArray(value) && previous != null ? [prefix, ...value].flat() : value;
+    }
+  }
+  return values;
+};
+
+/** Present effective HTTP headers to object validators with case-insensitive keys.
+ * Retain typed input where serialization agrees with the final header, while
+ * reflecting security headers added or replaced after the caller's options.
+ */
+export const getHeadersForValidation = (
+  headers: Headers,
+  ...inputs: Array<Config['headers']>
+): Record<string, unknown> => {
+  const raw = mergeHeaderOptions(...inputs);
+  const values: Record<string, unknown> = Object.create(null);
+  for (const [key, value] of headersEntries(headers)) {
+    // Headers trims each appended string independently; validators must see that
+    // same value even when the schema models the header as a typed array.
+    const typed = Array.isArray(raw[key])
+      ? raw[key].map((entry: unknown) =>
+          typeof entry === 'string' ? new Headers([[key, entry]]).get(key) : entry,
+        )
+      : raw[key];
+    values[key] =
+      raw[key] !== undefined &&
+      typeof raw[key] !== 'string' &&
+      mergeHeaders({ [key]: raw[key] }).get(key) === value
+        ? typed
+        : value;
+  }
+  return new Proxy(values, {
+    get: (target, key) => Reflect.get(target, typeof key === 'string' ? key.toLowerCase() : key),
+    has: (target, key) => Reflect.has(target, typeof key === 'string' ? key.toLowerCase() : key),
+  });
 };
 
 type ErrInterceptor<Err, Res, Req, Options> = (

@@ -426,18 +426,24 @@ export function operationStatements({
     const hasRequiredContentType = Boolean(parameterContentType?.required);
     // spreading required Content-Type on generated header would throw a TypeScript error
     if (!hasRequiredContentType) {
-      const headers = $.object()
+      const defaults = $.object()
         .pretty()
-        // form-data does not need Content-Type header, browser will set it automatically
+        // A null marker removes configured Content-Type for multipart boundary creation.
         .prop(
           parameterContentType?.name ?? 'Content-Type',
           $.literal(operation.body.type === 'form-data' ? null : operation.body.mediaType),
-        )
-        .spread($('options').attr('headers').required(isRequiredOptions));
-      if (hasParams) {
-        headers.spread($('params').attr('headers'));
+        );
+      const optionHeaders = $('options').attr('headers').required(isRequiredOptions);
+      if (client.name === '@hey-api/client-fetch') {
+        // Fetch accepts records, native Headers and tuples; object spread loses the latter two.
+        const inputs = [defaults, optionHeaders];
+        if (hasParams) inputs.push($('params').attr('headers'));
+        reqOptions.prop('headers', $(plugin.imports.mergeHeaderOptions).call(...inputs));
+      } else {
+        const headers = defaults.spread(optionHeaders);
+        if (hasParams) headers.spread($('params').attr('headers'));
+        reqOptions.prop('headers', headers);
       }
-      reqOptions.prop('headers', headers);
     }
   }
 

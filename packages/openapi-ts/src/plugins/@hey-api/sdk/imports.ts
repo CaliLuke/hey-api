@@ -65,6 +65,10 @@ export function sdkImports(plugin: PluginInstance) {
         resource: 'client.formDataBodySerializer',
       },
     }),
+    mergeHeaderOptions: factory.register('mergeHeaderOptions', {
+      external: clientModule,
+      meta: { resource: 'client.mergeHeaderOptions' },
+    }),
     urlSearchParamsBodySerializer: factory.register('urlSearchParamsBodySerializer', {
       external: clientModule,
       meta: {

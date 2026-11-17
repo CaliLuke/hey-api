@@ -136,11 +136,29 @@ export function createSseClient<TData = unknown>({
 
         const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
 
-        let buffer = '';
+        // The parser touches each character once. A chunk is scanned for its
+        // own line terminators, and the pieces of a line that spans chunks are
+        // kept in a list until the terminator arrives, so an event costs time
+        // linear in its size. Re-scanning or re-copying the whole buffer on
+        // every chunk costs the square of the event size, which stalls a
+        // client for minutes on an event of a few hundred megabytes.
+        const lineTerminator = /\r\n|\r|\n/g;
+        // Pieces of the line that the previous chunks ended in the middle of.
+        let lineParts: Array<string> = [];
+        // Whether the previous chunk ended with '\r', so that a '\n' at the
+        // start of the next chunk completes a CRLF terminator.
+        let afterCarriageReturn = false;
+        // Fields of the event being assembled, and how many lines it has.
+        let dataLines: Array<string> = [];
+        let eventName: string | undefined;
+        // An interrupted frame must not advance the replay cursor or retry policy.
+        let eventId: string | undefined;
+        let eventRetry: number | undefined;
+        let eventLines = 0;
 
         const abortHandler = () => {
           try {
-            reader.cancel();
+            void reader.cancel().catch(() => undefined);
           } catch {
             // noop
           }
@@ -152,37 +170,57 @@ export function createSseClient<TData = unknown>({
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            buffer += value;
-            buffer = buffer.replace(/\r\n?/g, '\n'); // normalize line endings
 
-            const chunks = buffer.split('\n\n');
-            buffer = chunks.pop() ?? '';
+            let start = 0;
+            if (afterCarriageReturn && value.startsWith('\n')) {
+              start = 1;
+            }
+            afterCarriageReturn = false;
+            lineTerminator.lastIndex = start;
 
-            for (const chunk of chunks) {
-              const lines = chunk.split('\n');
-              const dataLines: Array<string> = [];
-              let eventName: string | undefined;
+            let match: RegExpExecArray | null;
+            while ((match = lineTerminator.exec(value)) !== null) {
+              const piece = value.slice(start, match.index);
+              const line = lineParts.length ? lineParts.join('') + piece : piece;
+              lineParts = [];
+              start = match.index + match[0].length;
+              afterCarriageReturn = match[0] === '\r' && start === value.length;
 
-              for (const line of lines) {
+              if (line !== '') {
+                eventLines++;
                 if (line.startsWith('data:')) {
-                  dataLines.push(line.replace(/^data:\s*/, ''));
+                  dataLines.push(line.replace(/^data: ?/, ''));
                 } else if (line.startsWith('event:')) {
-                  eventName = line.replace(/^event:\s*/, '');
+                  eventName = line.replace(/^event: ?/, '');
                 } else if (line.startsWith('id:')) {
-                  lastEventId = line.replace(/^id:\s*/, '');
+                  eventId = line.replace(/^id: ?/, '');
                 } else if (line.startsWith('retry:')) {
-                  const parsed = Number.parseInt(line.replace(/^retry:\s*/, ''), 10);
+                  const parsed = Number.parseInt(line.replace(/^retry: ?/, ''), 10);
                   if (!Number.isNaN(parsed)) {
-                    retryDelay = parsed;
+                    eventRetry = parsed;
                   }
                 }
+                continue;
               }
+
+              // An empty line ends the event. One that follows no line at all
+              // is a blank line between two events, not an event.
+              if (eventLines === 0) continue;
+              if (eventId !== undefined) lastEventId = eventId;
+              if (eventRetry !== undefined) retryDelay = eventRetry;
+              eventId = undefined;
+              eventRetry = undefined;
+              const eventDataLines = dataLines;
+              const eventEventName = eventName;
+              dataLines = [];
+              eventName = undefined;
+              eventLines = 0;
 
               let data: unknown;
               let parsedJson = false;
 
-              if (dataLines.length) {
-                const rawData = dataLines.join('\n');
+              if (eventDataLines.length) {
+                const rawData = eventDataLines.join('\n');
                 try {
                   data = JSON.parse(rawData);
                   parsedJson = true;
@@ -203,14 +241,18 @@ export function createSseClient<TData = unknown>({
 
               onSseEvent?.({
                 data,
-                event: eventName,
+                event: eventEventName,
                 id: lastEventId,
                 retry: retryDelay,
               });
 
-              if (dataLines.length) {
+              if (eventDataLines.length) {
                 yield data as any;
               }
+            }
+
+            if (start < value.length) {
+              lineParts.push(value.slice(start));
             }
           }
         } finally {

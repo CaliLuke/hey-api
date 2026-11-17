@@ -22,4 +22,4 @@ export type {
   ResponseStyle,
   TDataShape,
 } from './types';
-export { createConfig, mergeHeaders } from './utils';
+export { createConfig, mergeHeaderOptions, mergeHeaders } from './utils';

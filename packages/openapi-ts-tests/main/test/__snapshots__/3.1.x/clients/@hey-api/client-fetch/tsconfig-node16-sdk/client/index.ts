@@ -24,4 +24,4 @@ export type {
   ResponseStyle,
   TDataShape,
 } from './types.gen.js';
-export { createConfig, mergeHeaders } from './utils.gen.js';
+export { createConfig, mergeHeaderOptions, mergeHeaders } from './utils.gen.js';

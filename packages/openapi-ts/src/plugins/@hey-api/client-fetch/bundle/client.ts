@@ -6,6 +6,7 @@ import {
   buildUrl,
   createConfig,
   createInterceptors,
+  getHeadersForValidation,
   getParseAs,
   mergeConfigs,
   mergeHeaders,
@@ -50,7 +51,10 @@ export const createClient = (config: Config = {}): Client => {
     }
 
     if (opts.requestValidator) {
-      await opts.requestValidator(opts);
+      await opts.requestValidator({
+        ...opts,
+        headers: getHeadersForValidation(opts.headers, _config.headers, options.headers),
+      });
     }
 
     if (opts.body !== undefined && opts.bodySerializer) {
@@ -115,84 +119,37 @@ export const createClient = (config: Config = {}): Client => {
             ? getParseAs(response.headers.get('Content-Type'))
             : opts.parseAs) ?? 'json';
 
-        if (response.status === 204) {
-          let data: unknown;
-          if (parseAs === 'json') {
-            if (opts.responseValidator) {
-              await opts.responseValidator(data);
-            }
-
-            if (opts.responseTransformer) {
-              data = await opts.responseTransformer(data);
-            }
-          }
-          return opts.responseStyle === 'data'
-            ? data
-            : {
-                data,
-                ...result,
-              };
-        }
-
-        if (response.headers.get('Content-Length') === '0') {
-          let emptyData: any;
+        // Decode first, then validate every successful response through one boundary.
+        // A 204 has no representation regardless of its media type or parse mode.
+        let data: any;
+        if (response.status !== 204) {
+          const empty = response.headers.get('Content-Length') === '0';
           switch (parseAs) {
             case 'arrayBuffer':
             case 'blob':
             case 'text':
-              emptyData = await response[parseAs]();
+              data = await response[parseAs]();
               break;
             case 'formData':
-              emptyData = new FormData();
+              data = empty ? new FormData() : await response.formData();
               break;
+            case 'json': {
+              const text = await response.text();
+              data = text ? JSON.parse(text) : {};
+              break;
+            }
             case 'stream':
-              emptyData = response.body;
-              break;
-            case 'json':
-            default:
-              emptyData = {};
+              data = response.body;
               break;
           }
-          return opts.responseStyle === 'data'
-            ? emptyData
-            : {
-                data: emptyData,
-                ...result,
-              };
         }
 
-        let data: any;
-        switch (parseAs) {
-          case 'arrayBuffer':
-          case 'blob':
-          case 'formData':
-          case 'text':
-            data = await response[parseAs]();
-            break;
-          case 'json': {
-            // Some servers return 200 with no Content-Length and empty body.
-            // response.json() would throw; read as text and parse if non-empty.
-            const text = await response.text();
-            data = text ? JSON.parse(text) : {};
-            break;
-          }
-          case 'stream':
-            return opts.responseStyle === 'data'
-              ? response.body
-              : {
-                  data: response.body,
-                  ...result,
-                };
+        if (opts.responseValidator) {
+          await opts.responseValidator(data);
         }
 
-        if (parseAs === 'json') {
-          if (opts.responseValidator) {
-            await opts.responseValidator(data);
-          }
-
-          if (opts.responseTransformer) {
-            data = await opts.responseTransformer(data);
-          }
+        if (parseAs === 'json' && opts.responseTransformer) {
+          data = await opts.responseTransformer(data);
         }
 
         return opts.responseStyle === 'data'
